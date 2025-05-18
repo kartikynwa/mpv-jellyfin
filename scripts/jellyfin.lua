@@ -5,7 +5,6 @@ local input = require 'mp.input'
 local is_windows = package.config:sub(1, 1) == '\\'
 
 package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
--- local input_success, input = pcall(require, "user-input-module")
 
 local options = {
   url = "",
@@ -86,48 +85,49 @@ local function mkdir(path)
   end
 end
 
-local function send_request_with_body(method, url, body)
-  if #api_key > 0 then
-    local args = { "curl", "-X", method, url, "-H", "Authorization: MediaBrowser Token=\"" .. api_key .. "\"" }
-    if body ~= nil then
+local function curl_args(method, url, opts)
+  local args = { "curl", "-X", method, url, "-H", "Authorization: MediaBrowser Token=\"" .. api_key .. "\"" }
+  if opts then
+    if opts.body then
       table.insert(args, "-H")
       table.insert(args, "Content-Type: application/json")
       table.insert(args, "-d")
-      table.insert(args, body)
+      table.insert(args, opts.body)
     end
+    if opts.query then
+      for key, value in pairs(opts.query) do
+        table.insert(args, "--url-query")
+        table.insert(args, key .. "=" .. value)
+      end
+    end
+  end
+  return args
+end
+
+local function send_request(method, url, opts)
+  if #api_key > 0 then
     local request = mp.command_native({
       name = "subprocess",
       capture_stdout = true,
       capture_stderr = true,
       playback_only = false,
-      args = args,
+      args = curl_args(method, url, opts),
     })
     return utils.parse_json(request.stdout)
   end
   return nil
 end
 
-local function send_request(method, url)
-  return send_request_with_body(method, url, nil)
-end
-
 local function clear_request(success, result, error)
   async[2] = nil
 end
 
-local function send_request_async(method, url, body)
+local function send_request_async(method, url, opts)
   if #api_key > 0 and async[2] == nil then -- multiple requests are just discarded
-    local args = { "curl", "-s", "-X", method, url, "-H", "Authorization: MediaBrowser Token=\"" .. api_key .. "\"" }
-    if body ~= nil then
-      table.insert(args, "-H")
-      table.insert(args, "Content-Type: application/json")
-      table.insert(args, "-d")
-      table.insert(args, body)
-    end
     async[2] = mp.command_native_async({
       name = "subprocess",
       playback_only = false,
-      args = args,
+      args = curl_args(method, url, opts),
     }, function(success, result, error) clear_request(success, result, error) end)
     return 0
   end
@@ -169,7 +169,7 @@ local function update_list()
     item.PartCount = 1
     if part_count > 1 then
       local part_url = options.url .. "/Videos/" .. item.Id .. "/AdditionalParts"
-      new_items = send_request("GET", part_url).Items
+      new_items = send_request("GET", part_url, nil).Items
       base_name = item.Name
       item.Name = base_name .. " (Part 1)"
     end
@@ -241,6 +241,8 @@ local function show_image(success, result, error, userdata)
 end
 
 local function update_image(item)
+  if not item then return end
+
   local width = math.floor(ow / (3 * scale))
   local height = 0
   local filepath = ""
@@ -259,6 +261,9 @@ end
 
 local function update_metadata(item)
   meta_overlay.data = ""
+
+  if not item then return end
+
   local name = line_break(item.Name, align_other .. "{\\fs24}", 30)
   meta_overlay.data = meta_overlay.data .. name .. "\n"
   local year = ""
@@ -297,26 +302,33 @@ end
 local function update_overlay()
   overlay.data = "{\\fs16}Loading..."
   overlay:update()
-  local base_url = options.url ..
-      "/Items?user_id=" .. user_id ..
-      "&parentId=" ..
-      parent_id[layer] .. "&enableImageTypes=Primary&imageTypeLimit=1&fields=PrimaryImageAspectRatio,Taglines,Overview"
+  local url = options.url .. "/Items"
+  local query = {
+    user_id = user_id,
+    parentId = parent_id[layer],
+    enableImageTypes = "Primary",
+    imageTypeLimit = "1",
+    fields = "PrimaryImageAspectRatio,Taglines,Overview"
+  }
   if layer == 2 then
-    base_url = base_url .. "&sortBy=SortName"
-  else
-    -- nothing
+    query.sortBy = "SortName"
   end
-  local url = base_url .. "&searchTerm=" .. user_query
-  local json = send_request("GET", url)
+  if #user_query > 0 then
+    query.searchTerm = user_query
+    query.recursive = "true"
+  end
+  local json = send_request("GET", url, { query = query })
   if json == nil or #json.Items == 0 then --no results
-    items = send_request("GET", base_url).Items
+    query.searchTerm = nil
+    query.recursive = nil
+    items = send_request("GET", url, { query = query }).Items
   else
     items = json.Items
   end
   update_data()
 end
 
-local function width_change(name, data)
+local function width_change()
   ow, oh, op = mp.get_osd_size()
   if shown then update_image(items[selection[layer]]) end
 end
@@ -351,7 +363,7 @@ local function sessions_playing()
   local url = options.url .. "/Sessions/Playing"
   local payload = generate_playing_payload()
   if payload ~= nil then
-    send_request_async("POST", url, payload)
+    send_request_async("POST", url, { body = payload })
   end
 end
 
@@ -368,14 +380,16 @@ local function generate_stopped_payload()
   end
 end
 
+-- TODO: This should probably always be syncronous due to
+-- a possible race condition in getting user data
 local function sessions_stopped(synchronous)
   local url = options.url .. "/Sessions/Playing/Stopped"
   local payload = generate_stopped_payload()
   if payload ~= nil then
     if synchronous then
-      send_request_with_body("POST", url, payload)
+      send_request("POST", url, { body = payload })
     else
-      send_request_async("POST", url, payload)
+      send_request_async("POST", url, { body = payload })
     end
   end
 end
@@ -402,7 +416,7 @@ local function sessions_progress()
   local url = options.url .. "/Sessions/Playing/Progress"
   local payload = generate_progress_payload()
   if payload ~= nil then
-    send_request_async("POST", url, payload)
+    send_request_async("POST", url, { body = payload })
   end
 end
 
@@ -451,7 +465,8 @@ local function unpause(event_info)
     sessions_stopped(false)
 
     if current_item ~= nil then
-      local item_data = send_request("GET", options.url .. "/UserItems/" .. current_item.Id .. "/UserData")
+      local url = options.url .. "/UserItems/" .. current_item.Id .. "/UserData"
+      local item_data = send_request("GET", url, nil)
       if item_data ~= nil then
         current_item.UserData = item_data
         if item_data.Played and selection[layer] < #items then
@@ -579,14 +594,9 @@ local function disable_overlay()
   toggle_overlay()
 end
 
-local function url_fix(str) -- add more later?
-  return string.gsub(str, " ", "%%20")
-end
-
 local function search(query)
   if query ~= nil then
-    local result = url_fix(query)
-    user_query = result .. "&recursive=true"
+    user_query = query
     shown = false
     items = {}
     toggle_overlay()
