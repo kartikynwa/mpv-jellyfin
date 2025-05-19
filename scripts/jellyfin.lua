@@ -4,7 +4,7 @@ local msg = require 'mp.msg'
 local input = require 'mp.input'
 local is_windows = package.config:sub(1, 1) == '\\'
 
-package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
+-- package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
 
 local options = {
   url = "",
@@ -15,12 +15,14 @@ local options = {
   hide_spoilers = "on",
   show_by_default = "",
   show_on_idle = "",
-  use_playlist = "",
   colour_default = "FFFFFF",
   colour_selected = "FF",
   colour_watched = "A0A0A0"
+  -- use_playlist = "",
 }
 opt.read_options(options, mp.get_script_name())
+
+local log_curl = false
 
 local overlay = mp.create_osd_overlay("ass-events")
 local meta_overlay = mp.create_osd_overlay("ass-events")
@@ -86,7 +88,13 @@ local function mkdir(path)
 end
 
 local function curl_args(method, url, opts)
-  local args = { "curl", "-X", method, url, "-H", "Authorization: MediaBrowser Token=\"" .. api_key .. "\"" }
+  local args = { "curl", "-s", "-X", method, url }
+
+  if #api_key > 0 and opts and not opts.no_auth then
+    table.insert(args, "-H")
+    table.insert(args, "Authorization: MediaBrowser Token=\"" .. api_key .. "\"")
+  end
+
   if opts then
     if opts.body then
       table.insert(args, "-H")
@@ -99,6 +107,20 @@ local function curl_args(method, url, opts)
         table.insert(args, "--url-query")
         table.insert(args, key .. "=" .. value)
       end
+    end
+    if opts.headers then
+      for key, value in pairs(opts.headers) do
+        table.insert(args, "-H")
+        table.insert(args, key .. ": " .. value)
+      end
+    end
+  end
+  if log_curl then
+    local f = io.open("curl.log", "a")
+    if f then
+      f:write(utils.to_string(args))
+      f:write("\n")
+      f:close()
     end
   end
   return args
@@ -429,15 +451,15 @@ local progress_timer = mp.add_periodic_timer(2, progress_callback, true)
 
 local function play_video(resume)
   toggle_overlay()
-  mp.commandv("playlist-play-index", "none")
-  mp.command("playlist-clear")
-  if options.use_playlist == "on" then
-    for i = 1, #items do
-      if i ~= selection[layer] then
-        mp.commandv("loadfile", options.url .. "/Videos/" .. items[i].Id .. "/stream?static=true", "append")
-      end
-    end
-  end
+  -- mp.commandv("playlist-play-index", "none")
+  -- mp.command("playlist-clear")
+  -- if options.use_playlist == "on" then
+  --   for i = 1, #items do
+  --     if i ~= selection[layer] then
+  --       mp.commandv("loadfile", options.url .. "/Videos/" .. items[i].Id .. "/stream?static=true", "append")
+  --     end
+  --   end
+  -- end
   current_item = items[selection[layer]]
   local start_pos = 0.0
   if resume and current_item.UserData and current_item.UserData.PlaybackPositionTicks > 0 then
@@ -454,11 +476,11 @@ local function play_video(resume)
   mp.commandv("loadfile", stream_url, "insert-at-play", selection[layer] - 1, "start=" .. tostring(start_pos))
   mp.set_property("force-media-title", current_item.Name)
   sessions_playing()
-  progress_timer:resume()
+  if progress_timer then progress_timer:resume() end
 end
 
-local function unpause(event_info)
-  progress_timer:kill()
+local function end_file_hook(event_info)
+  if progress_timer then progress_timer:kill() end
   if event_info.reason == "quit" then
     sessions_stopped(true)
   else
@@ -479,8 +501,6 @@ local function unpause(event_info)
 
   current_item = nil
   current_ticks = nil
-  -- mp.set_property_bool("pause", false)
-  -- mp.set_property("force-media-title", "")
 end
 
 move_up = function()
@@ -551,12 +571,21 @@ local function key_left()
 end
 
 local function connect()
+  local url = options.url .. "/Users/AuthenticateByName"
+  local headers = {
+    accept = "application/json",
+    ["x-emby-authorization"] =
+    "MediaBrowser Client=\"mpv-jellyfin\", Device=\"Custom Device\", DeviceId=\"1\", Version=\"0.0.1\""
+  }
+  local payload = utils.format_json({ username = options.username, Pw = options.password })
+  local opts = { headers = headers, body = payload }
+  local args = curl_args("POST", url, opts)
   local request = mp.command_native({
     name = "subprocess",
     capture_stdout = true,
     capture_stderr = true,
     playback_only = false,
-    args = { "curl", options.url .. "/Users/AuthenticateByName", "-H", "accept: application/json", "-H", "content-type: application/json", "-H", "x-emby-authorization: MediaBrowser Client=\"Custom Client\", Device=\"Custom Device\", DeviceId=\"1\", Version=\"0.0.1\"", "-d", "{\"username\":\"" .. options.username .. "\",\"Pw\":\"" .. options.password .. "\"}" }
+    args = args,
   })
   local result = utils.parse_json(request.stdout)
   user_id = result.User.Id
@@ -655,7 +684,7 @@ if options.hide_images ~= "on" then
 end
 mp.observe_property("osd-align-x", "string", align_x_change)
 mp.observe_property("osd-align-y", "string", align_y_change)
-mp.register_event("end-file", unpause)
+mp.register_event("end-file", end_file_hook)
 -- if input_success then
 mp.add_key_binding("Ctrl+f", "jf_search", search_input)
 -- end
