@@ -2,15 +2,15 @@ local input = require("mp.input")
 local msg = require("mp.msg")
 local opt = require("mp.options")
 local utils = require("mp.utils")
-local is_windows = package.config:sub(1, 1) == "\\"
+-- local is_windows = package.config:sub(1, 1) == "\\"
 
 -- package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
+--
 
 local options = {
     url = "",
     username = "",
     password = "",
-    image_path = "",
     hide_spoilers = "on",
     show_by_default = "",
     show_on_idle = "",
@@ -32,14 +32,16 @@ local user_query = ""
 local current_item = nil
 local current_ticks = nil
 
-local parent_id = { "", "", "", "" }
-local selection = { 1, 1, 1, 1 }
-local list_start = { 1, 1, 1, 1 }
+local parent_id = {}
+local selection = {}
+setmetatable(selection, { __index = function() return 1 end })
+local list_start = {}
+setmetatable(list_start, { __index = function() return 1 end })
 local layer = 1
 
 local items = {}
-local ow, oh, op = 0, 0, 0
-local async = {} -- 1 = image thread, 2 = request thread
+-- local ow, oh, op = 0, 0, 0
+local async_request = nil -- 1 = image thread, 2 = request thread
 
 local align_x = 1 -- 1 = left, 2 = center, 3 = right
 local align_y = 4 -- 4 = top, 8 = center, 0 = bottom
@@ -48,7 +50,7 @@ local align_y = 4 -- 4 = top, 8 = center, 0 = bottom
 --A value of 3 specifies a right-justified subtitle
 --Adding 4 to the value specifies a "Toptitle"
 --Adding 8 to the value specifies a "Midtitle"
-local align_main = "{\\a0}"
+-- local align_main = "{\\a0}"
 local align_other = "{\\a7}"
 
 local toggle_overlay -- function
@@ -72,14 +74,6 @@ local function pretty_ticks(ticks)
     seconds = math.floor(seconds - (minutes * 60))
     table.insert(parts, string.format("%02d", seconds))
     return table.concat(parts, ":")
-end
-
-local function mkdir(path)
-    if is_windows then
-    --io.popen('mkdir "'..path..'"')
-    else
-        os.execute('mkdir -p "' .. path .. '"')
-    end
 end
 
 local function curl_args(method, url, opts)
@@ -135,15 +129,13 @@ local function send_request(method, url, opts)
     return nil
 end
 
-local function clear_request(success, result, error) async[2] = nil end
-
 local function send_request_async(method, url, opts)
-    if #api_key > 0 and async[2] == nil then -- multiple requests are just discarded
-        async[2] = mp.command_native_async({
+    if #api_key > 0 and async_request == nil then -- multiple requests are just discarded
+        async_request = mp.command_native_async({
             name = "subprocess",
             playback_only = false,
             args = curl_args(method, url, opts),
-        }, function(success, result, error) clear_request(success, result, error) end)
+        }, function(_, _, _) async_request = nil end)
         return 0
     end
     return 1
@@ -220,76 +212,44 @@ local function update_list()
     overlay:update()
 end
 
-local scale = 2 -- const
-
-local function show_image(success, result, error, userdata)
-    if not success then
-        msg.error("Failed to create image: " .. error)
-        return
-    elseif result.error_string == "init" then
-        msg.error("Failed to create image: mpv not found.")
-        return
-    elseif result.status ~= 0 then
-        if not result.killed_by_us then
-            msg.error("Failed to create image: mpv exited with status: " .. result.status .. ".")
-        end
-        return
-    end
-    local x = (align_x == 3) and math.floor(ow / 3.5) or math.floor(ow / 2.5)
-    local y = (align_y == 0) and oh - 10 - (userdata[2] * scale) or 10
-    if shown == true then
-        mp.command_native({
-            name = "overlay-add",
-            id = 0,
-            x = x,
-            y = y,
-            file = userdata[3],
-            offset = 0,
-            fmt = "bgra",
-            w = userdata[1],
-            h = userdata[2],
-            stride = userdata[1] * 4,
-            dw = userdata[1] * scale,
-            dh = userdata[2] * scale,
-        })
-    end
-end
-
 local function update_metadata(item)
     meta_overlay.data = ""
 
-    if not item then return end
-
-    local name = line_break(item.Name, align_other .. "{\\fs24}", 30)
-    meta_overlay.data = meta_overlay.data .. name .. "\n"
-    local year = ""
-    if item.ProductionYear then year = item.ProductionYear end
-    local time = ""
-    if item.RunTimeTicks then time = "   " .. math.floor(item.RunTimeTicks / 600000000) .. "m" end
-    local rating = ""
-    if item.CommunityRating then rating = "   " .. item.CommunityRating end
-    local hidden = ""
-    local watched = ""
-    if item.UserData.Played == false then
-        if options.hide_spoilers ~= "off" then hidden = "{\\bord0}{\\1a&HFF&}" end
-    else
-        watched = "   Watched"
+    if item then
+        local name = line_break(item.Name, align_other .. "{\\fs24}", 30)
+        meta_overlay.data = meta_overlay.data .. name .. "\n"
+        local year = ""
+        if item.ProductionYear then year = item.ProductionYear end
+        local time = ""
+        if item.RunTimeTicks then
+            time = "   " .. math.floor(item.RunTimeTicks / 600000000) .. "m"
+        end
+        local rating = ""
+        if item.CommunityRating then rating = "   " .. item.CommunityRating end
+        local hidden = ""
+        local watched = ""
+        if item.UserData.Played == false then
+            if options.hide_spoilers ~= "off" then hidden = "{\\bord0}{\\1a&HFF&}" end
+        else
+            watched = "   Watched"
+        end
+        local favourite = ""
+        if item.UserData.IsFavorite == true then favourite = "   Favorite" end
+        meta_overlay.data = meta_overlay.data
+            .. align_other
+            .. "{\\fs16}"
+            .. year
+            .. time
+            .. rating
+            .. watched
+            .. favourite
+            .. "\n\n"
+        local tagline = line_break(item.Taglines[1], align_other .. "{\\fs20}", 35)
+        meta_overlay.data = meta_overlay.data .. tagline .. "\n"
+        local description = line_break(item.Overview, align_other .. "{\\fs16}" .. hidden, 45)
+        meta_overlay.data = meta_overlay.data .. description
     end
-    local favourite = ""
-    if item.UserData.IsFavorite == true then favourite = "   Favorite" end
-    meta_overlay.data = meta_overlay.data
-        .. align_other
-        .. "{\\fs16}"
-        .. year
-        .. time
-        .. rating
-        .. watched
-        .. favourite
-        .. "\n\n"
-    local tagline = line_break(item.Taglines[1], align_other .. "{\\fs20}", 35)
-    meta_overlay.data = meta_overlay.data .. tagline .. "\n"
-    local description = line_break(item.Overview, align_other .. "{\\fs16}" .. hidden, 45)
-    meta_overlay.data = meta_overlay.data .. description
+
     meta_overlay:update()
 end
 
@@ -305,10 +265,8 @@ local function update_overlay()
     local url = options.url .. "/Items"
     local query = {
         user_id = user_id,
-        parentId = parent_id[layer],
-        enableImageTypes = "Primary",
-        imageTypeLimit = "1",
-        fields = "PrimaryImageAspectRatio,Taglines,Overview",
+        parentId = parent_id[#parent_id],
+        fields = "Taglines,Overview",
     }
     if layer == 2 then query.sortBy = "SortName" end
     if #user_query > 0 then
@@ -321,6 +279,7 @@ local function update_overlay()
         query.recursive = nil
         items = send_request("GET", url, { query = query }).Items
     else
+        selection[layer] = 1
         items = json.Items
     end
     update_data()
@@ -412,15 +371,6 @@ local progress_timer = mp.add_periodic_timer(2, progress_callback, true)
 
 local function play_video(resume)
     toggle_overlay()
-    -- mp.commandv("playlist-play-index", "none")
-    -- mp.command("playlist-clear")
-    -- if options.use_playlist == "on" then
-    --   for i = 1, #items do
-    --     if i ~= selection[layer] then
-    --       mp.commandv("loadfile", options.url .. "/Videos/" .. items[i].Id .. "/stream?static=true", "append")
-    --     end
-    --   end
-    -- end
     current_item = items[selection[layer]]
     local start_pos = 0.0
     if resume and current_item.UserData and current_item.UserData.PlaybackPositionTicks > 0 then
@@ -432,13 +382,7 @@ local function play_video(resume)
         current_ticks = 0
     end
     local stream_url = options.url .. "/Videos/" .. current_item.Id .. "/stream?static=true"
-    mp.commandv(
-        "loadfile",
-        stream_url,
-        "insert-at-play",
-        selection[layer] - 1,
-        "start=" .. tostring(start_pos)
-    )
+    mp.commandv("loadfile", stream_url, "replace", -1, "start=" .. tostring(start_pos))
     mp.set_property("force-media-title", current_item.Name)
     sessions_playing()
     if progress_timer then progress_timer:resume() end
@@ -484,7 +428,7 @@ move_right = function(resume)
         play_video(resume)
     else
         layer = layer + 1 -- shouldn't get too big
-        parent_id[layer] = items[selection[layer - 1]].Id
+        table.insert(parent_id, items[selection[layer - 1]].Id)
         selection[layer] = 1
         user_query = ""
         update_overlay()
@@ -517,6 +461,7 @@ end
 
 move_left = function()
     if layer == 1 then return end
+    table.remove(parent_id)
     layer = layer - 1
     user_query = ""
     update_overlay()
@@ -606,7 +551,7 @@ local function set_align()
     align_other = "{\\a" .. ((4 - align_x) + align_y) .. "}"
 end
 
-local function align_x_change(name, data)
+local function align_x_change(_, data)
     if data == "right" then
         align_x = 3
     elseif data == "center" then
@@ -617,7 +562,7 @@ local function align_x_change(name, data)
     set_align()
 end
 
-local function align_y_change(name, data)
+local function align_y_change(_, data)
     if data == "bottom" then
         align_y = 0
     elseif data == "center" then
@@ -634,7 +579,7 @@ end
 
 -- mp.add_periodic_timer(1, check_percent)
 mp.add_key_binding("Ctrl+j", "jf", toggle_overlay)
-mp.add_key_binding("ESC", nil, disable_overlay)
+mp.add_key_binding("ESC", "jesc", disable_overlay)
 mp.observe_property("osd-align-x", "string", align_x_change)
 mp.observe_property("osd-align-y", "string", align_y_change)
 mp.register_event("end-file", end_file_hook)
