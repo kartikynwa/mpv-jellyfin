@@ -79,7 +79,7 @@ end
 local function curl_args(method, url, opts)
     local args = { "curl", "-s", "-X", method, url }
 
-    if #api_key > 0 and opts and not opts.no_auth then
+    if #api_key > 0 then
         table.insert(args, "-H")
         table.insert(args, 'Authorization: MediaBrowser Token="' .. api_key .. '"')
     end
@@ -429,7 +429,7 @@ move_right = function(resume)
     else
         layer = layer + 1 -- shouldn't get too big
         table.insert(parent_id, items[selection[layer - 1]].Id)
-        selection[layer] = 1
+        -- selection[layer] = 1
         user_query = ""
         update_overlay()
     end
