@@ -47,6 +47,11 @@ Thumbnails will accumulate if the selected image path isn't tmpfs. In addition t
 6. Use `mp.input` instead of external dependency when using search
   - TODO: Fix jank when returning from search output to normal menu
 7. Formatted the code using stylua
+8. When playback is stopped and if Jellyfin marks this stopped as played,
+   the next item in the list if it exists is automatically selected
+  - For maximum binge
+  - It requires making a call to the Jellyfin server upon playback stop
+    which I am unable to decide if it is worth
 
 ## Credit
 
