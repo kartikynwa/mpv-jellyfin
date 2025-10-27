@@ -12,16 +12,18 @@ local options = {
     username = "",
     password = "",
     hide_spoilers = "on",
-    show_by_default = "",
     show_on_idle = "",
     colour_default = "FFFFFF",
     colour_selected = "FF",
     colour_watched = "A0A0A0",
-    -- use_playlist = "",
 }
 opt.read_options(options, mp.get_script_name())
 
 local log_curl = false
+local curl_binary = "curl"
+if package.config:sub(1, 1) == "\\" then
+    curl_binary = "curl.exe"
+end
 
 local overlay = mp.create_osd_overlay("ass-events")
 local meta_overlay = mp.create_osd_overlay("ass-events")
@@ -77,7 +79,7 @@ local function pretty_ticks(ticks)
 end
 
 local function curl_args(method, url, opts)
-    local args = { "curl", "-s", "-X", method, url }
+    local args = { curl_binary, "-s", "-X", method, url }
 
     if #api_key > 0 then
         table.insert(args, "-H")
@@ -543,7 +545,6 @@ local function search_input()
         submit = search,
         keep_open = false,
     })
-    -- input.get_user_input(search)
 end
 
 local function set_align()
@@ -577,16 +578,14 @@ local function enable_overlay_on_idle(_, is_idle)
     if is_idle and not shown then toggle_overlay() end
 end
 
--- mp.add_periodic_timer(1, check_percent)
 mp.add_key_binding("Ctrl+j", "jf", toggle_overlay)
 mp.add_key_binding("ESC", "jesc", disable_overlay)
+mp.add_key_binding("Ctrl+f", "jf_search", search_input)
+
 mp.observe_property("osd-align-x", "string", align_x_change)
 mp.observe_property("osd-align-y", "string", align_y_change)
+
 mp.register_event("end-file", end_file_hook)
--- if input_success then
-mp.add_key_binding("Ctrl+f", "jf_search", search_input)
--- end
-if options.show_by_default == "on" then toggle_overlay() end
 if options.show_on_idle == "on" then
     mp.observe_property("idle-active", "bool", enable_overlay_on_idle)
 end
