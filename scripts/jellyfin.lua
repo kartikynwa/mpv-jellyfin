@@ -2,28 +2,23 @@ local input = require("mp.input")
 local msg = require("mp.msg")
 local opt = require("mp.options")
 local utils = require("mp.utils")
--- local is_windows = package.config:sub(1, 1) == "\\"
-
--- package.path = mp.command_native({ "expand-path", "~~/script-modules/?.lua;" }) .. package.path
---
 
 local options = {
     url = "",
     username = "",
     password = "",
     hide_spoilers = "on",
-    show_on_idle = "",
+    show_on_idle = "off",
     colour_default = "FFFFFF",
     colour_selected = "FF",
     colour_watched = "A0A0A0",
+    log_curl = "off",
 }
 opt.read_options(options, mp.get_script_name())
 
-local log_curl = false
 local curl_binary = "curl"
-if package.config:sub(1, 1) == "\\" then
-    curl_binary = "curl.exe"
-end
+if package.config:sub(1, 1) == "\\" then curl_binary = "curl.exe" end
+local log_curl = options.log_curl == "on"
 
 local overlay = mp.create_osd_overlay("ass-events")
 local meta_overlay = mp.create_osd_overlay("ass-events")
@@ -268,7 +263,7 @@ local function update_overlay()
     local query = {
         user_id = user_id,
         parentId = parent_id[#parent_id],
-        fields = "Taglines,Overview",
+        fields = "Taglines,Overview,MediaSources",
     }
     if layer == 2 then query.sortBy = "SortName" end
     if #user_query > 0 then
@@ -578,6 +573,37 @@ local function enable_overlay_on_idle(_, is_idle)
     if is_idle and not shown then toggle_overlay() end
 end
 
+local function add_subs()
+    if current_item == nil then return end
+    for _, source in ipairs(current_item.MediaSources) do
+        if source.Id == current_item.Id then
+            msg.log("info", "Found media source with correct id")
+            for _, stream in ipairs(source.MediaStreams) do
+                if stream.IsTextSubtitleStream == true and stream.IsExternal == true then
+                    local ext = stream.Path:match(".+%.([^.]+)$")
+                    local commandv_args = {
+                        "sub-add",
+                        options.url
+                            .. "/Videos/"
+                            .. current_item.Id
+                            .. "/"
+                            .. source.Id
+                            .. "/Subtitles/"
+                            .. stream.Index
+                            .. "/Stream."
+                            .. ext,
+                        "auto",
+                        stream.DisplayTitle,
+                    }
+                    if stream.Language ~= nil then table.insert(commandv_args, stream.Language) end
+                    mp.commandv(table.unpack(commandv_args))
+                end
+            end
+            break
+        end
+    end
+end
+
 mp.add_key_binding("Ctrl+j", "jf", toggle_overlay)
 mp.add_key_binding("ESC", "jesc", disable_overlay)
 mp.add_key_binding("Ctrl+f", "jf_search", search_input)
@@ -585,6 +611,7 @@ mp.add_key_binding("Ctrl+f", "jf_search", search_input)
 mp.observe_property("osd-align-x", "string", align_x_change)
 mp.observe_property("osd-align-y", "string", align_y_change)
 
+mp.register_event("file-loaded", add_subs)
 mp.register_event("end-file", end_file_hook)
 if options.show_on_idle == "on" then
     mp.observe_property("idle-active", "bool", enable_overlay_on_idle)
