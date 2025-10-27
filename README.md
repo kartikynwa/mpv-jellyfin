@@ -38,12 +38,15 @@ Thumbnails will accumulate if the selected image path isn't tmpfs. In addition t
   - Loading of images
   - `use_playlist` configuration
 3. Add playback start, stop and progress reporting
-4. Add Windows support
+4. Add ability to resume playback
+  - Select item with `Space` rather than the arrow keys to resume playback
+  - Select item with arrow keys to start from the beginning
+5. Add Windows support
   - Still needs the curl binary
   - I recommend installing it via scoop or something similar
-5. Use `mp.input` instead of external dependency when using search
+6. Use `mp.input` instead of external dependency when using search
   - TODO: Fix jank when returning from search output to normal menu
-6. Formatted the code using stylua
+7. Formatted the code using stylua
 
 ## Credit
 
