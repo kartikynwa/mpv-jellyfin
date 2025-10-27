@@ -3,6 +3,8 @@ local msg = require("mp.msg")
 local opt = require("mp.options")
 local utils = require("mp.utils")
 
+table.unpack = table.unpack or unpack -- 5.1 compatibility
+
 local options = {
     url = "",
     username = "",
