@@ -19,7 +19,6 @@ local options = {
 opt.read_options(options, mp.get_script_name())
 
 local curl_binary = "curl"
-if package.config:sub(1, 1) == "\\" then curl_binary = "curl.exe" end
 local log_curl = options.log_curl == "on"
 
 local overlay = mp.create_osd_overlay("ass-events")
