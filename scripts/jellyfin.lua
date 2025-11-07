@@ -189,8 +189,8 @@ local function update_list()
         --
         if item.IndexNumber and item.IsFolder == false then
             index = item.IndexNumber .. ". "
-        else
-            -- nothing
+        elseif item.IsFolder == true then
+            index = "+ "
         end
         overlay.data = overlay.data .. "{\\fs16}" .. "{\\c&H"
         if i == selection[layer] then
@@ -203,7 +203,7 @@ local function update_list()
         overlay.data = overlay.data .. "&}" .. index .. item.Name
         if item.UserData and item.UserData.PlaybackPositionTicks > 0 then
             local played_duration = pretty_ticks(item.UserData.PlaybackPositionTicks)
-            overlay.data = overlay.data .. " (> " .. played_duration .. ")"
+            overlay.data = overlay.data .. " (▸ " .. played_duration .. ")"
         end
         overlay.data = overlay.data .. "\n"
     end
@@ -266,7 +266,7 @@ local function update_overlay()
         parentId = parent_id[#parent_id],
         fields = "Taglines,Overview,MediaSources",
     }
-    if layer == 2 then query.sortBy = "SortName" end
+    if layer == 2 then query.sortBy = "IsFolder,SortName" end
     if #user_query > 0 then
         query.searchTerm = user_query
         query.recursive = "true"
