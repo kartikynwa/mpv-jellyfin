@@ -262,7 +262,7 @@ local function update_overlay()
     overlay:update()
     local url = options.url .. "/Items"
     local query = {
-        user_id = user_id,
+        -- userId = user_id, -- Useless???
         parentId = parent_id[#parent_id],
         fields = "Taglines,Overview,MediaSources",
     }
@@ -367,23 +367,28 @@ end
 
 local progress_timer = mp.add_periodic_timer(2, progress_callback, true)
 
-local function play_video(resume)
+local function play_video(item, resume)
     toggle_overlay()
-    current_item = items[selection[layer]]
     local start_pos = 0.0
-    if resume and current_item.UserData and current_item.UserData.PlaybackPositionTicks > 0 then
-        current_ticks = current_item.UserData.PlaybackPositionTicks
+    if resume and item.UserData and item.UserData.PlaybackPositionTicks > 0 then
+        current_ticks = item.UserData.PlaybackPositionTicks
         start_pos = ticks_to_seconds(current_ticks)
         -- start from 10 seconds before for context
         if start_pos > 10 then start_pos = start_pos - 10 end
     else
         current_ticks = 0
     end
-    local stream_url = options.url .. "/Videos/" .. current_item.Id .. "/stream?static=true"
+    local stream_url = options.url .. "/Videos/" .. item.Id .. "/stream?static=true"
     mp.commandv("loadfile", stream_url, "replace", -1, "start=" .. tostring(start_pos))
-    mp.set_property("force-media-title", current_item.Name)
+    mp.set_property("force-media-title", item.Name)
     sessions_playing()
+    -- mp.set_property_bool("pause", false)
     if progress_timer then progress_timer:resume() end
+end
+
+local function play_selection(resume)
+    current_item = items[selection[layer]]
+    play_video(current_item, resume)
 end
 
 local function end_file_hook()
@@ -423,13 +428,37 @@ end
 
 move_right = function(resume)
     if items[selection[layer]].IsFolder == false then
-        play_video(resume)
+        play_selection(resume)
     else
         layer = layer + 1 -- shouldn't get too big
         table.insert(parent_id, items[selection[layer - 1]].Id)
         -- selection[layer] = 1
         user_query = ""
         update_overlay()
+    end
+end
+
+play_random = function()
+    local item = items[selection[layer]]
+    if item.IsFolder == false then
+        return
+    end
+    local url = options.url .. "/Items"
+    local query = {
+        parentId = item.Id,
+        recursive = "true",
+        sortBy = "Random",
+        filters = "IsNotFolder",
+        limit = 1,
+        mediaTypes = "Audio,Video",
+    }
+    local response = send_request("GET", url, { query = query })
+    local random_item = response.Items[1]
+    if random_item ~= nil then
+        play_video(random_item, false)
+    else
+        msg.log("error", "Unable to get random item. The response from the server was:")
+        msg.log("error", utils.format_json(response))
     end
 end
 
@@ -501,6 +530,7 @@ toggle_overlay = function()
         mp.remove_key_binding("jdown")
         mp.remove_key_binding("jleft")
         mp.remove_key_binding("jspace")
+        mp.remove_key_binding("jrandom")
         mp.commandv("overlay-remove", "0")
         overlay:remove()
         meta_overlay:remove()
@@ -510,6 +540,7 @@ toggle_overlay = function()
         mp.add_forced_key_binding("DOWN", "jdown", key_down, { repeatable = true })
         mp.add_forced_key_binding("LEFT", "jleft", key_left)
         mp.add_forced_key_binding("SPACE", "jspace", function() move_right(true) end)
+        mp.add_forced_key_binding("r", "jrandom", play_random)
         if #api_key <= 0 then connect() end
         if #items == 0 then
             update_overlay()
@@ -578,7 +609,6 @@ local function add_subs()
     if current_item == nil then return end
     for _, source in ipairs(current_item.MediaSources) do
         if source.Id == current_item.Id then
-            msg.log("info", "Found media source with correct id")
             for _, stream in ipairs(source.MediaStreams) do
                 if stream.IsTextSubtitleStream == true and stream.IsExternal == true then
                     local ext = stream.Path:match(".+%.([^.]+)$")
