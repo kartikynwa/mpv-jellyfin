@@ -25,6 +25,10 @@ You can navigate around using the arrow keys.
 
 When you activate a video in the menu, it will begin to play that file.
 
+Fork specific changes:
+- To resume playback, use spacebar instead of the arrow key when choosing the video.
+- To play a random item from a folder, press the `r` key.
+
 ## Limitations
 
 In general this is a very minimal script and isn't designed to be a full Jellyfin client. Changing settings or metadata has to be done from a real Jellyfin client.
