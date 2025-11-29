@@ -450,8 +450,8 @@ move_right = function(resume)
     if items[selection[layer]].IsFolder == false then
         play_selection(resume)
     else
+        table.insert(parent_id, items[selection[layer]].Id)
         layer = layer + 1 -- shouldn't get too big
-        table.insert(parent_id, items[selection[layer - 1]].Id)
         -- selection[layer] = 1
         update_overlay()
     end
