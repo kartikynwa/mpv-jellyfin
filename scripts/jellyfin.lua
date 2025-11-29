@@ -3,6 +3,23 @@ local msg = require("mp.msg")
 local opt = require("mp.options")
 local utils = require("mp.utils")
 
+local function hash(str)
+    local h = 5381
+
+    for i = 1, #str do
+        h = math.fmod(h * 32 + h + str:byte(i), 2147483648)
+    end
+    return h
+end
+
+local function hostname()
+    local f = io.popen("hostname")
+    local hostname = f:read("*l")
+    f:close()
+    if hostname == nil or hostname == "" then return "Unknown Device" end
+    return hostname
+end
+
 table.unpack = table.unpack or unpack -- 5.1 compatibility
 
 local options = {
@@ -56,6 +73,8 @@ local move_up -- function
 local move_right -- function
 local move_down -- function
 local move_left -- function
+
+local function device_id() return tostring(hash("mpv-jellyfin-" .. options.username)) end
 
 local function seconds_to_ticks(seconds) return seconds * 1000 * 10000 end
 
@@ -506,7 +525,11 @@ local function connect()
     local url = options.url .. "/Users/AuthenticateByName"
     local headers = {
         accept = "application/json",
-        ["x-emby-authorization"] = 'MediaBrowser Client="mpv-jellyfin", Device="Custom Device", DeviceId="1", Version="0.0.1"',
+        authorization = 'MediaBrowser Client="mpv-jellyfin", Device="'
+            .. hostname()
+            .. '", DeviceId="'
+            .. device_id()
+            .. '", Version="0.0.1"',
     }
     local payload = utils.format_json({ username = options.username, Pw = options.password })
     local opts = { headers = headers, body = payload }
