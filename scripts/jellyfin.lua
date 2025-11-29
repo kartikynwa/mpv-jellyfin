@@ -285,16 +285,17 @@ local function update_overlay()
         parentId = parent_id[#parent_id],
         fields = "Taglines,Overview,MediaSources",
     }
-    if layer == 2 then query.sortBy = "IsFolder,SortName" end
+    if layer >= 2 then query.sortBy = "IsFolder,SortName" end
     if #user_query > 0 then
         query.searchTerm = user_query
         query.recursive = "true"
+        user_query = ""
     end
     local json = send_request("GET", url, { query = query })
     if json == nil or #json.Items == 0 then --no results
-        query.searchTerm = nil
-        query.recursive = nil
-        items = send_request("GET", url, { query = query }).Items
+        layer = layer - 1
+        table.remove(parent_id)
+        mp.osd_message("No items in response")
     else
         selection[layer] = 1
         items = json.Items
@@ -452,7 +453,6 @@ move_right = function(resume)
         layer = layer + 1 -- shouldn't get too big
         table.insert(parent_id, items[selection[layer - 1]].Id)
         -- selection[layer] = 1
-        user_query = ""
         update_overlay()
     end
 end
@@ -509,7 +509,6 @@ move_left = function()
     if layer == 1 then return end
     table.remove(parent_id)
     layer = layer - 1
-    user_query = ""
     update_overlay()
 end
 
@@ -582,9 +581,9 @@ end
 local function search(query)
     if query ~= nil then
         user_query = query
-        shown = false
-        items = {}
-        toggle_overlay()
+        layer = layer + 1
+        table.insert(parent_id, parent_id[#parent_id])
+        update_overlay()
     end
     input.terminate()
 end
