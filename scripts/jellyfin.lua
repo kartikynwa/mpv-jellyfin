@@ -667,6 +667,11 @@ mp.observe_property("osd-align-y", "string", align_y_change)
 
 mp.register_event("file-loaded", add_subs)
 mp.register_event("end-file", end_file_hook)
+mp.register_event(
+    "shutdown",
+    function() send_request("POST", options.url .. "/Sessions/Logout", nil) end
+)
+
 if options.show_on_idle == "on" then
     mp.observe_property("idle-active", "bool", enable_overlay_on_idle)
 end
