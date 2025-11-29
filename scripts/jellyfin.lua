@@ -459,9 +459,7 @@ end
 
 play_random = function()
     local item = items[selection[layer]]
-    if item.IsFolder == false then
-        return
-    end
+    if item.IsFolder == false then return end
     local url = options.url .. "/Items"
     local query = {
         parentId = item.Id,
